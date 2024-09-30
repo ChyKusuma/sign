@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/ChyKusuma/bc-go/hashtree"
+	"github.com/ChyKusuma/hashtree"
 	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 )
