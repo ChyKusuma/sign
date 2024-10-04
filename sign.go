@@ -7,6 +7,7 @@ import (
 	"github.com/ChyKusuma/hashtree"
 	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // KeyManager interface defines methods for key management and cryptographic operations
@@ -40,20 +41,23 @@ type KeyManager interface {
 }
 
 // SphincsManager implements the KeyManager interface for SPHINCS+ operations
-type SphincsManager struct{}
+type SphincsManager struct {
+	db *leveldb.DB // LevelDB instance for storing leaves
+}
+
+// NewSphincsManager creates a new instance of SphincsManager with a LevelDB instance
+func NewSphincsManager(db *leveldb.DB) *SphincsManager {
+	return &SphincsManager{db: db}
+}
 
 // GenerateKeys generates a new pair of secret and public keys
 func (sm *SphincsManager) GenerateKeys(params *parameters.Parameters) (*sphincs.SPHINCS_SK, *sphincs.SPHINCS_PK) {
-	// Call SPHINCS+ key generation function with the provided parameters
 	return sphincs.Spx_keygen(params)
 }
 
 // SignMessage signs a given message using the secret key
 func (sm *SphincsManager) SignMessage(params *parameters.Parameters, message []byte, sk *sphincs.SPHINCS_SK) (*sphincs.SPHINCS_SIG, *hashtree.HashTreeNode, error) {
-	// Generate SPHINCS+ signature for the message using the secret key
 	sig := sphincs.Spx_sign(params, message, sk)
-
-	// Serialize the generated signature into bytes
 	sigBytes, err := sig.SerializeSignature()
 	if err != nil {
 		return nil, nil, err
@@ -77,19 +81,26 @@ func (sm *SphincsManager) SignMessage(params *parameters.Parameters, message []b
 		return nil, nil, err
 	}
 
-	// Return the signature and the Merkle root node
+	// Save leaf nodes to LevelDB
+	if err := hashtree.SaveLeavesBatchToDB(sm.db, sigParts); err != nil {
+		return nil, nil, err
+	}
+
+	// Optionally prune old leaves based on your criteria (e.g., number of leaves)
+	if err := hashtree.PruneOldLeaves(sm.db, 10); err != nil { // Adjust the number as needed
+		return nil, nil, err
+	}
+
 	return sig, merkleRoot, nil
 }
 
 // VerifySignature verifies if a signature is valid for a given message and public key
 func (sm *SphincsManager) VerifySignature(params *parameters.Parameters, message []byte, sig *sphincs.SPHINCS_SIG, pk *sphincs.SPHINCS_PK, merkleRoot *hashtree.HashTreeNode) bool {
-	// Verify the signature with the given message and public key
 	isValid := sphincs.Spx_verify(params, message, sig, pk)
 	if !isValid {
 		return false
 	}
 
-	// Serialize the signature to bytes for Merkle tree rebuilding
 	sigBytes, err := sig.SerializeSignature()
 	if err != nil {
 		return false
@@ -113,37 +124,30 @@ func (sm *SphincsManager) VerifySignature(params *parameters.Parameters, message
 		return false
 	}
 
-	// Compare the rebuilt Merkle root hash with the provided Merkle root hash
 	return hex.EncodeToString(rebuiltRoot.Hash) == hex.EncodeToString(merkleRoot.Hash)
 }
 
 // Helper functions for key serialization and deserialization
-// SerializeSK converts a secret key to a byte slice
 func (sm *SphincsManager) SerializeSK(sk *sphincs.SPHINCS_SK) ([]byte, error) {
 	return sk.SerializeSK()
 }
 
-// DeserializeSK converts a byte slice back into a secret key
 func (sm *SphincsManager) DeserializeSK(params *parameters.Parameters, skBytes []byte) (*sphincs.SPHINCS_SK, error) {
 	return sphincs.DeserializeSK(params, skBytes)
 }
 
-// SerializePK converts a public key to a byte slice
 func (sm *SphincsManager) SerializePK(pk *sphincs.SPHINCS_PK) ([]byte, error) {
 	return pk.SerializePK()
 }
 
-// DeserializePK converts a byte slice back into a public key
 func (sm *SphincsManager) DeserializePK(params *parameters.Parameters, pkBytes []byte) (*sphincs.SPHINCS_PK, error) {
 	return sphincs.DeserializePK(params, pkBytes)
 }
 
-// SerializeSignature converts a signature to a byte slice
 func (sm *SphincsManager) SerializeSignature(sig *sphincs.SPHINCS_SIG) ([]byte, error) {
 	return sig.SerializeSignature()
 }
 
-// DeserializeSignature converts a byte slice back into a signature
 func (sm *SphincsManager) DeserializeSignature(params *parameters.Parameters, sigBytes []byte) (*sphincs.SPHINCS_SIG, error) {
 	return sphincs.DeserializeSignature(params, sigBytes)
 }
